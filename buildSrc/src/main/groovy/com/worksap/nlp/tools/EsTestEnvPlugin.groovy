@@ -154,22 +154,40 @@ class EsTestEnvPlugin implements Plugin<Project> {
             task.systemProperty("gradle.worker.jar", gradleCacheDir.resolve("workerMain/gradle-worker.jar").toString())
             task.systemProperty("java.io.tmpdir", envRoot)
 
-            // OpenSearch 3.0+ requires the Java agent for security framework
+            // OpenSearch 3.0+ requires the Java agent for security framework.
+            // The agent MANIFEST declares a relative Boot-Class-Path pointing to
+            // opensearch-agent-bootstrap, so both jars must live in the same directory
+            // for the JVM to load AgentPolicy into the bootstrap classloader.
+            // This mirrors what opensearch.java-agent Gradle plugin does:
+            // https://github.com/opensearch-project/OpenSearch/blob/5d21cafd397b2e50d7549c0c915d10b6d98dbfae/buildSrc/src/main/java/org/opensearch/gradle/agent/JavaAgent.java
             if (target.plugins.findPlugin(EsExtensionPlugin.class) != null) {
                 var esExt = target.extensions.getByType(EsExtension)
                 var kind = esExt.kind.get()
                 if (kind.engine == EngineType.OpenSearch && kind.parsedVersion().ge(3, 0)) {
-                    // Disable the old security manager setting
                     task.systemProperty("tests.security.manager", false)
-                    // Find and attach the opensearch-agent jar
                     task.doFirst {
-                        var agentJar = target.configurations.testRuntimeClasspath.find { it.name.startsWith("opensearch-agent-") && !it.name.contains("bootstrap") && !it.name.contains("policy") }
-                        if (agentJar != null) {
-                            task.jvmArgs("-javaagent:${agentJar}")
-                            logger.warn("Using OpenSearch security agent: ${agentJar}")
-                        } else {
-                            logger.warn("OpenSearch agent jar not found in testRuntimeClasspath")
+                        var agentJar = target.configurations.testRuntimeClasspath.find {
+                            it.name.startsWith("opensearch-agent-") && !it.name.contains("bootstrap") && !it.name.contains("policy")
                         }
+                        if (agentJar == null) {
+                            logger.warn("OpenSearch agent jar not found in testRuntimeClasspath")
+                            return
+                        }
+                        var agentDir = target.buildDir.toPath().resolve("opensearch-agent-stage")
+                        Files.createDirectories(agentDir)
+                        // Copy opensearch-agent and opensearch-agent-bootstrap into one directory
+                        // so the JVM resolves the relative Boot-Class-Path entries correctly.
+                        target.configurations.testRuntimeClasspath.each { File f ->
+                            if (f.name == agentJar.name || f.name.startsWith("opensearch-agent-bootstrap-")) {
+                                var dest = agentDir.resolve(f.name)
+                                if (Files.notExists(dest)) {
+                                    Files.copy(f.toPath(), dest)
+                                }
+                            }
+                        }
+                        var stagedAgent = agentDir.resolve(agentJar.name)
+                        task.jvmArgs("-javaagent:${stagedAgent}")
+                        logger.warn("Using OpenSearch security agent: ${stagedAgent}")
                     }
                 }
             }
