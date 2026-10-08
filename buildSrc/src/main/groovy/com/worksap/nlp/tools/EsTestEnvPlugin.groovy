@@ -164,6 +164,7 @@ class EsTestEnvPlugin implements Plugin<Project> {
                 var esExt = target.extensions.getByType(EsExtension)
                 var kind = esExt.kind.get()
                 if (kind.engine == EngineType.OpenSearch && kind.parsedVersion().ge(3, 0)) {
+                    // Disable the old security manager setting
                     task.systemProperty("tests.security.manager", false)
                     task.doFirst {
                         var agentJar = target.configurations.testRuntimeClasspath.find {
