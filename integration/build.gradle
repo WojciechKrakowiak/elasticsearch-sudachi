@@ -139,7 +139,7 @@ test {
             ':subplugin:distZip'
     )
     // OpenSearch 3.0+ uses the Java agent security framework; Security Manager must be disabled.
-    // For all other engines/versions the legacy Security Manager is still active.
+    // For older versions the legacy Security Manager is still active.
     def useJavaAgent = !sudachiEs.isEs() && sudachiEs.kind.get().parsedVersion().ge(3, 0)
     systemProperty("tests.security.manager", !useJavaAgent)
     defaultCharacterEncoding = 'utf-8'
